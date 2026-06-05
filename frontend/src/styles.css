@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #0a0a0a;
+  --accent: #ff4d8b;
+  --bg: #fffaf0;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
+}
+
+body {
+  background: #fffaf0;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #0a0a0a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Shimmer sweep on URL input ─── */
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-200%); }
+  100% { transform: translateX(200%); }
+}
+
+.shimmer-active {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.75) 50%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─── Fade-up entrance ─── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.fade-up       { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.fade-up-d1    { animation: fade-up 0.6s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.fade-up-d2    { animation: fade-up 0.6s 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.fade-up-d3    { animation: fade-up 0.6s 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ─── Card hover lift ─── */
+.card-lift {
+  transition: box-shadow 0.22s ease, transform 0.22s ease;
+}
+.card-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 48px rgba(10, 10, 10, 0.18);
+}
+
+/* ─── Frost blur overlay pulse ─── */
+@keyframes frost-pulse {
+  0%, 100% { opacity: 0.88; }
+  50%       { opacity: 1;    }
+}
+.frost-pulse { animation: frost-pulse 2.8s ease-in-out infinite; }
+
+/* ─── SVG score ring ─── */
+.score-arc {
+  transition: stroke-dashoffset 1.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── Lock icon hover ─── */
+.lock-btn:hover .lock-shackle {
+  transform: translateY(-3px);
+}
+.lock-shackle { transition: transform 0.2s ease; }
+
+/* ─── Stagger reveal (JS-added class) ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.55s ease, transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
