@@ -347,7 +347,7 @@ export default function Landing() {
                   >
                     <button
                       disabled
-                      data-locus-checkout="ophunt-report-1"
+                      data-ophunt-checkout="ophunt-report-1"
                       className="font-body font-semibold cursor-not-allowed"
                       style={{
                         background: '#ff4d8b',
@@ -677,7 +677,7 @@ export default function Landing() {
 
             <button
               disabled
-              data-locus-checkout="ophunt-report-1"
+              data-ophunt-checkout="ophunt-report-1"
               className="w-full font-body font-semibold cursor-not-allowed"
               style={{
                 background: 'rgba(255,77,139,0.3)',
@@ -692,7 +692,7 @@ export default function Landing() {
               Pre-order — checkout opening soon
             </button>
             <p className="font-body mt-3" style={{ fontSize: '12px', color: 'rgba(10,10,10,0.35)' }}>
-              Stripe-secured · Payments handled by Locus
+              Secured checkout · Payments by Lemon Squeezy
             </p>
           </div>
         </div>

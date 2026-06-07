@@ -16,7 +16,20 @@ interface IdeaDetail {
   competitorGap: string;
   mvpConcept: string;
   gtmStrategy: string;
-  scores: { opportunity: number; feasibility: number; novelty: number };
+  // v2 full pitch-spec fields
+  opportunity: string;
+  problem: string;
+  marketFit: string;
+  businessModel: string;
+  valueProp: string;
+  whyNow: string;
+  timing: string;
+  communitySignal: string;
+  proofSignals: string[];
+  keywords: string[];
+  category: string;
+  source: string;
+  scores: { opportunity: number; feasibility: number; novelty: number; timing: number; marketFit: number };
   tags: string[];
   isUnlocked: boolean;
   createdAt: string;
@@ -195,12 +208,19 @@ export default function Report() {
     setTimeout(() => setCopiedPosts(prev => ({ ...prev, [key]: false })), 2000);
   };
 
-  const locusUrl = idea
-    ? `https://app.locusfounder.com/new?brief=${encodeURIComponent(`${idea.title} — ${idea.summary} — Target user: ${idea.targetAudience} — MVP: ${idea.mvpConcept}`)}`
-    : '#';
-
   const handleCopyPrompt = () => {
-    const prompt = `# ${idea!.title}\n\n## Problem\n${idea!.summary}\n\n## Target User\n${idea!.targetAudience}\n\n## MVP Scope\n${idea!.mvpConcept}\n\n## First 100 Customers\n${idea!.gtmStrategy}`;
+    const i = idea!;
+    const prompt = [
+      `# ${i.title}`,
+      `\n## Problem\n${i.problem || i.summary}`,
+      `\n## Opportunity\n${i.opportunity || i.summary}`,
+      `\n## Target User\n${i.targetAudience}`,
+      `\n## Value Proposition\n${i.valueProp}`,
+      `\n## Why Now\n${i.whyNow}`,
+      `\n## MVP Scope\n${i.mvpConcept}`,
+      `\n## First 100 Customers\n${i.gtmStrategy}`,
+      `\n## Business Model\n${i.businessModel}`,
+    ].join('');
     navigator.clipboard.writeText(prompt);
     setCopiedPrompt(true);
     setTimeout(() => setCopiedPrompt(false), 2000);
@@ -365,29 +385,24 @@ export default function Report() {
             ← Explore ideas
           </Link>
 
-          {/* Tags */}
-          {idea.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-6">
-              {idea.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="font-body"
-                  style={{
-                    background: 'rgba(10,10,10,0.06)',
-                    color: 'rgba(10,10,10,0.55)',
-                    borderRadius: '999px',
-                    padding: '4px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Category + source + tags */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {idea.category && (
+              <span className="font-body" style={{ background: '#ff4d8b', color: '#fff', borderRadius: '999px', padding: '4px 12px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>
+                {idea.category}
+              </span>
+            )}
+            {idea.source && idea.source !== 'url' && (
+              <span className="font-body" style={{ background: 'rgba(10,10,10,0.08)', color: 'rgba(10,10,10,0.6)', borderRadius: '999px', padding: '4px 12px', fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px' }}>
+                via {idea.source}
+              </span>
+            )}
+            {idea.tags.map((tag) => (
+              <span key={tag} className="font-body" style={{ background: 'rgba(10,10,10,0.06)', color: 'rgba(10,10,10,0.55)', borderRadius: '999px', padding: '4px 12px', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {tag}
+              </span>
+            ))}
+          </div>
 
           {/* Title */}
           <h1
@@ -416,7 +431,28 @@ export default function Report() {
             <ScoreRing value={idea.scores.opportunity} label="Opportunity" color="#ff4d8b" />
             <ScoreRing value={idea.scores.feasibility} label="Feasibility" color="#1a3a3a" />
             <ScoreRing value={idea.scores.novelty} label="Novelty" color="#b8a4ed" />
+            <ScoreRing value={idea.scores.timing ?? 0} label="Timing" color="#f4a261" />
+            <ScoreRing value={idea.scores.marketFit ?? 0} label="Market Fit" color="#2a9d8f" />
           </div>
+
+          {/* Keywords — free preview */}
+          {idea.keywords?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-10">
+              {idea.keywords.map((kw) => (
+                <span key={kw} className="font-body" style={{ background: '#f0ece0', color: 'rgba(10,10,10,0.55)', borderRadius: '8px', padding: '4px 10px', fontSize: '12px', fontWeight: 500 }}>
+                  #{kw}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Timing — free preview */}
+          {idea.timing && (
+            <div className="mb-10" style={{ background: '#f5f0e0', borderRadius: '12px', padding: '16px 20px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+              <span style={{ color: '#f4a261', fontWeight: 700, flexShrink: 0 }}>⏱</span>
+              <p className="font-body" style={{ fontSize: '14px', lineHeight: '1.6', color: 'rgba(10,10,10,0.65)', margin: 0 }}><strong>Timing:</strong> {idea.timing}</p>
+            </div>
+          )}
 
           {/* Summary */}
           <section className="mb-10">
@@ -505,44 +541,118 @@ export default function Report() {
                   transition: 'filter 0.4s ease',
                 }}
               >
+                {/* Problem */}
+                {idea.problem && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      The Problem
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.problem}</p>
+                  </section>
+                )}
+
+                {/* Opportunity */}
+                {idea.opportunity && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Opportunity
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.opportunity}</p>
+                  </section>
+                )}
+
                 {/* Competitor gap */}
                 <section className="mb-8">
-                  <h2
-                    className="font-body font-semibold uppercase mb-4"
-                    style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}
-                  >
+                  <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
                     Competitor Gap
                   </h2>
-                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>
-                    {idea.competitorGap}
-                  </p>
+                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.competitorGap}</p>
                 </section>
+
+                {/* Market fit */}
+                {idea.marketFit && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Market Fit
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.marketFit}</p>
+                  </section>
+                )}
+
+                {/* Value proposition */}
+                {idea.valueProp && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Value Proposition
+                    </h2>
+                    <div style={{ background: '#f5f0e0', borderRadius: '16px', padding: '24px', borderLeft: '3px solid #ff4d8b' }}>
+                      <p className="font-body" style={{ fontSize: '17px', lineHeight: '1.6', color: 'rgba(10,10,10,0.85)', margin: 0, fontStyle: 'italic' }}>{idea.valueProp}</p>
+                    </div>
+                  </section>
+                )}
+
+                {/* Why now */}
+                {idea.whyNow && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Why Now
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.whyNow}</p>
+                  </section>
+                )}
+
+                {/* Business model */}
+                {idea.businessModel && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Business Model
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.businessModel}</p>
+                  </section>
+                )}
 
                 {/* MVP concept */}
                 <section className="mb-8">
-                  <h2
-                    className="font-body font-semibold uppercase mb-4"
-                    style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}
-                  >
+                  <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
                     MVP Concept
                   </h2>
-                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>
-                    {idea.mvpConcept}
-                  </p>
+                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.mvpConcept}</p>
                 </section>
 
                 {/* GTM strategy */}
                 <section className="mb-8">
-                  <h2
-                    className="font-body font-semibold uppercase mb-4"
-                    style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}
-                  >
+                  <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
                     Go-to-Market: First 100 Customers
                   </h2>
-                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>
-                    {idea.gtmStrategy}
-                  </p>
+                  <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.gtmStrategy}</p>
                 </section>
+
+                {/* Proof signals */}
+                {idea.proofSignals?.length > 0 && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Proof &amp; Signals
+                    </h2>
+                    <div className="flex flex-col gap-3">
+                      {idea.proofSignals.map((sig, i) => (
+                        <div key={i} className="flex gap-3 items-start" style={{ background: '#ffffff', borderRadius: '12px', padding: '16px 20px', border: '1px solid rgba(10,10,10,0.07)' }}>
+                          <span style={{ color: '#ff4d8b', flexShrink: 0, fontWeight: 700, fontSize: '14px' }}>→</span>
+                          <p className="font-body" style={{ fontSize: '15px', lineHeight: '1.6', color: 'rgba(10,10,10,0.75)', margin: 0 }}>{sig}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Community signal */}
+                {idea.communitySignal && (
+                  <section className="mb-8">
+                    <h2 className="font-body font-semibold uppercase mb-4" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
+                      Community Signal
+                    </h2>
+                    <p className="font-body" style={{ fontSize: '16px', lineHeight: '1.7', color: 'rgba(10,10,10,0.75)' }}>{idea.communitySignal}</p>
+                  </section>
+                )}
               </div>
 
               {/* Frosted overlay when locked */}
@@ -1217,49 +1327,22 @@ export default function Report() {
                 >
                   Hand off this brief to an AI builder and start shipping.
                 </p>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '12px',
-                    justifyContent: 'center',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <a
-                    href={locusUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      background: '#ff4d8b',
-                      color: '#ffffff',
-                      borderRadius: '12px',
-                      padding: '14px 28px',
-                      fontSize: '16px',
-                      fontWeight: 600,
-                      fontFamily: 'Inter, sans-serif',
-                      border: 'none',
-                      cursor: 'pointer',
-                      textDecoration: 'none',
-                      display: 'inline-block',
-                    }}
-                  >
-                    Build this with Locus →
-                  </a>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <button
                     onClick={handleCopyPrompt}
                     style={{
-                      background: 'transparent',
+                      background: '#ff4d8b',
                       color: '#ffffff',
-                      border: '1px solid rgba(255,255,255,0.25)',
+                      border: 'none',
                       borderRadius: '12px',
-                      padding: '14px 28px',
+                      padding: '14px 32px',
                       fontSize: '16px',
                       fontWeight: 600,
                       fontFamily: 'Inter, sans-serif',
                       cursor: 'pointer',
                     }}
                   >
-                    {copiedPrompt ? 'Copied! ✓' : 'Open in Claude / Codex →'}
+                    {copiedPrompt ? 'Copied! ✓' : 'Copy build brief for Claude / Codex →'}
                   </button>
                 </div>
               </>

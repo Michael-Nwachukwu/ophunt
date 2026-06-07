@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-const previewHost = process.env.LOCUS_PREVIEW_HOST;
+const previewHost = process.env.PREVIEW_HOST;
 const apiProxyTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:4100';
 
 export default defineConfig({

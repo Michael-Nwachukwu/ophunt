@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Nav from '../components/Nav';
 import Footer from '../components/Footer';
@@ -13,12 +13,23 @@ const CARD_CYCLE = [
   { bg: '#f5f0e0', text: '#0a0a0a', badge: 'rgba(10,10,10,0.08)' },
 ];
 
+const CATEGORIES = ['AI tools', 'dev tools', 'consumer apps', 'B2B SaaS', 'fintech', 'productivity', 'other'] as const;
+const SORT_OPTIONS = [
+  { value: 'recent', label: 'Freshest' },
+  { value: 'opportunity', label: 'Opportunity' },
+  { value: 'novelty', label: 'Novelty' },
+  { value: 'timing', label: 'Timing' },
+  { value: 'marketfit', label: 'Market Fit' },
+] as const;
+
 interface Idea {
   id: string;
   title: string;
   summary: string;
-  scores: { opportunity: number; feasibility: number; novelty: number };
+  scores: { opportunity: number; feasibility: number; novelty: number; timing?: number; marketFit?: number };
   tags: string[];
+  category?: string;
+  source?: string;
   sourceTitle: string;
   createdAt: string;
   isUnlocked: boolean;
@@ -31,19 +42,15 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
   useEffect(() => {
     const el = cardRef.current;
     if (!el) return;
-
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setTimeout(() => {
-            el.classList.add('visible');
-          }, (index % 3) * 80);
+          setTimeout(() => el.classList.add('visible'), (index % 3) * 80);
           observer.disconnect();
         }
       },
       { threshold: 0.15 }
     );
-
     observer.observe(el);
     return () => observer.disconnect();
   }, [index]);
@@ -59,33 +66,31 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
         className="no-underline block card-lift"
         style={{ background: bg, borderRadius: '24px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '20px', height: '100%' }}
       >
-        {/* Score badge */}
-        <div className="flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 font-body font-semibold"
-            style={{ background: badge, borderRadius: '999px', padding: '5px 12px', fontSize: '12px', color: text }}
-          >
+        {/* Score + category badges */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 font-body font-semibold" style={{ background: badge, borderRadius: '999px', padding: '5px 12px', fontSize: '12px', color: text }}>
             <span style={{ opacity: 0.7 }}>⬤</span>
             <span>{avgScore} / 100</span>
           </div>
-          {idea.isUnlocked && (
-            <span style={{ fontSize: '12px', color: text, opacity: 0.5 }}>Unlocked</span>
-          )}
+          <div className="flex items-center gap-2">
+            {idea.category && (
+              <span className="font-body" style={{ background: badge, color: text, borderRadius: '999px', padding: '3px 10px', fontSize: '11px', fontWeight: 700, opacity: 0.9 }}>
+                {idea.category}
+              </span>
+            )}
+            {idea.isUnlocked && (
+              <span style={{ fontSize: '12px', color: text, opacity: 0.5 }}>Unlocked</span>
+            )}
+          </div>
         </div>
 
         {/* Title */}
-        <h3
-          className="font-heading font-medium"
-          style={{ fontSize: '22px', letterSpacing: '-0.75px', color: text, margin: 0, lineHeight: 1.2 }}
-        >
+        <h3 className="font-heading font-medium" style={{ fontSize: '22px', letterSpacing: '-0.75px', color: text, margin: 0, lineHeight: 1.2 }}>
           {idea.title}
         </h3>
 
         {/* Summary */}
-        <p
-          className="font-body flex-1"
-          style={{ fontSize: '14px', lineHeight: '1.6', color: text, opacity: 0.75, margin: 0 }}
-        >
+        <p className="font-body flex-1" style={{ fontSize: '14px', lineHeight: '1.6', color: text, opacity: 0.75, margin: 0 }}>
           {idea.summary.length > 140 ? idea.summary.slice(0, 140) + '…' : idea.summary}
         </p>
 
@@ -93,18 +98,7 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
         {idea.tags.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {idea.tags.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="font-body"
-                style={{
-                  background: badge,
-                  color: text,
-                  borderRadius: '999px',
-                  padding: '3px 10px',
-                  fontSize: '12px',
-                  opacity: 0.85,
-                }}
-              >
+              <span key={tag} className="font-body" style={{ background: badge, color: text, borderRadius: '999px', padding: '3px 10px', fontSize: '12px', opacity: 0.85 }}>
                 {tag}
               </span>
             ))}
@@ -114,7 +108,7 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
         {/* Source + CTA */}
         <div className="flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${badge}` }}>
           <span className="font-body" style={{ fontSize: '12px', color: text, opacity: 0.5 }}>
-            {idea.sourceTitle || 'Web source'}
+            {idea.source && idea.source !== 'url' ? `via ${idea.source}` : idea.sourceTitle || 'Web source'}
           </span>
           <span className="font-body font-semibold" style={{ fontSize: '13px', color: text, opacity: 0.8 }}>
             Read brief →
@@ -129,19 +123,22 @@ export default function Explore() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [category, setCategory] = useState('');
+  const [sort, setSort] = useState('recent');
 
-  useEffect(() => {
-    apiFetch('/api/ideas')
+  const fetchIdeas = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (sort) params.set('sort', sort);
+    params.set('limit', '60');
+    apiFetch(`/api/ideas?${params}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data: { ideas: Idea[] }) => {
-        setIdeas(data.ideas);
-        setLoading(false);
-      })
-      .catch((err: unknown) => {
-        setError(String(err));
-        setLoading(false);
-      });
-  }, []);
+      .then((data: { ideas: Idea[] }) => { setIdeas(data.ideas); setLoading(false); })
+      .catch((err: unknown) => { setError(String(err)); setLoading(false); });
+  }, [category, sort]);
+
+  useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
 
   return (
     <div style={{ background: '#fffaf0', minHeight: '100vh' }}>
@@ -149,27 +146,51 @@ export default function Explore() {
 
       <section style={{ padding: '64px 24px 96px' }} className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-12">
-          <p
-            className="font-body font-semibold uppercase mb-3"
-            style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}
-          >
+        <div className="mb-10">
+          <p className="font-body font-semibold uppercase mb-3" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
             Idea Feed
           </p>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <h1
-              className="font-heading font-medium"
-              style={{ fontSize: 'clamp(32px, 5vw, 48px)', letterSpacing: '-1.5px', color: '#0a0a0a', margin: 0 }}
-            >
+            <h1 className="font-heading font-medium" style={{ fontSize: 'clamp(32px, 5vw, 48px)', letterSpacing: '-1.5px', color: '#0a0a0a', margin: 0 }}>
               Recent opportunities
             </h1>
-            <Link
-              to="/"
-              className="font-body text-sm no-underline self-start md:self-auto"
-              style={{ color: '#ff4d8b', fontWeight: 600 }}
-            >
+            <Link to="/" className="font-body text-sm no-underline self-start md:self-auto" style={{ color: '#ff4d8b', fontWeight: 600 }}>
               + Analyze a new URL
             </Link>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-3 mb-8 items-center">
+          {/* Category pills */}
+          <button
+            onClick={() => setCategory('')}
+            className="font-body font-semibold"
+            style={{ borderRadius: '999px', padding: '6px 16px', fontSize: '13px', border: 'none', cursor: 'pointer', background: category === '' ? '#0a0a0a' : 'rgba(10,10,10,0.07)', color: category === '' ? '#ffffff' : 'rgba(10,10,10,0.6)', transition: 'all 0.15s' }}
+          >
+            All
+          </button>
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setCategory(cat === category ? '' : cat)}
+              className="font-body font-semibold"
+              style={{ borderRadius: '999px', padding: '6px 16px', fontSize: '13px', border: 'none', cursor: 'pointer', background: category === cat ? '#ff4d8b' : 'rgba(10,10,10,0.07)', color: category === cat ? '#ffffff' : 'rgba(10,10,10,0.6)', transition: 'all 0.15s' }}
+            >
+              {cat}
+            </button>
+          ))}
+
+          {/* Sort */}
+          <div style={{ marginLeft: 'auto' }}>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="font-body"
+              style={{ background: 'rgba(10,10,10,0.07)', border: 'none', borderRadius: '999px', padding: '6px 16px', fontSize: '13px', color: 'rgba(10,10,10,0.7)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
           </div>
         </div>
 
@@ -177,25 +198,13 @@ export default function Explore() {
         {loading && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  background: CARD_CYCLE[i % CARD_CYCLE.length].bg,
-                  borderRadius: '24px',
-                  padding: '32px',
-                  height: '280px',
-                  opacity: 0.4,
-                }}
-              />
+              <div key={i} style={{ background: CARD_CYCLE[i % CARD_CYCLE.length].bg, borderRadius: '24px', padding: '32px', height: '280px', opacity: 0.4 }} />
             ))}
           </div>
         )}
 
         {error && (
-          <div
-            className="font-body text-center py-24"
-            style={{ color: 'rgba(10,10,10,0.4)', fontSize: '16px' }}
-          >
+          <div className="font-body text-center py-24" style={{ color: 'rgba(10,10,10,0.4)', fontSize: '16px' }}>
             Couldn't load ideas — {error}. Is the API running?
           </div>
         )}
@@ -203,13 +212,9 @@ export default function Explore() {
         {!loading && !error && ideas.length === 0 && (
           <div className="text-center py-24">
             <p className="font-body" style={{ fontSize: '17px', color: 'rgba(10,10,10,0.45)', marginBottom: '24px' }}>
-              The feed is empty. Be the first to hunt an idea.
+              {category ? `No ideas yet in "${category}". Try a different category or` : 'The feed is empty. Be the first to hunt an idea —'}{' '}
             </p>
-            <Link
-              to="/"
-              className="font-body font-semibold no-underline inline-block"
-              style={{ background: '#ff4d8b', color: '#ffffff', padding: '12px 28px', borderRadius: '12px', fontSize: '15px' }}
-            >
+            <Link to="/" className="font-body font-semibold no-underline inline-block" style={{ background: '#ff4d8b', color: '#ffffff', padding: '12px 28px', borderRadius: '12px', fontSize: '15px' }}>
               Analyze a URL →
             </Link>
           </div>
@@ -217,9 +222,7 @@ export default function Explore() {
 
         {!loading && !error && ideas.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {ideas.map((idea, i) => (
-              <IdeaCard key={idea.id} idea={idea} index={i} />
-            ))}
+            {ideas.map((idea, i) => <IdeaCard key={idea.id} idea={idea} index={i} />)}
           </div>
         )}
       </section>
