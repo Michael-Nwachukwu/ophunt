@@ -1,8 +1,3 @@
-/**
- * Shared analysis engine.
- * Used by POST /api/analyze and the curated idea-feed worker.
- */
-
 import { randomUUID } from 'node:crypto';
 import { scrapeUrl, llmComplete } from './argens.js';
 import type { Client } from '@libsql/client';
@@ -32,7 +27,6 @@ export interface AnalyzedIdea {
   competitorGap: string;
   mvpConcept: string;
   gtmStrategy: string;
-  // Full pitch spec fields
   opportunity: string;
   problem: string;
   marketFit: string;
@@ -57,117 +51,174 @@ export interface AnalyzedIdea {
   createdAt: string;
 }
 
-// ─── Mock idea (ARGENS_MOCK=1) ────────────────────────────────────────────────
+export interface AnalysisResult {
+  ideas: Array<Omit<AnalyzedIdea, 'id' | 'isUnlocked' | 'createdAt'>>;
+  noIdeasReason?: string;
+}
 
-function mockIdea(url: string, source: string): Omit<AnalyzedIdea, 'id' | 'isUnlocked' | 'createdAt'> {
+// ─── Mock (ARGENS_MOCK=1) ─────────────────────────────────────────────────────
+
+function mockResult(url: string, source: string): AnalysisResult {
   return {
-    url,
-    source,
-    sourceTitle: 'Mock: Hacker News — Ask HN: What problem are you solving?',
-    title: 'Async Status Digest for Small Teams',
-    summary: 'Small product teams burn 3–5 hours per week in unnecessary sync meetings whose only purpose is sharing status. A lightweight, opinionated async standup tool designed for teams under 15 would reclaim that time without requiring a process overhaul.',
-    painPoints: [
-      'Daily standups routinely run long because there is no structured input format',
-      'Status shared in Slack threads is impossible to review retroactively',
-      'Project managers spend hours chasing updates that should surface automatically',
+    ideas: [
+      {
+        url,
+        source,
+        sourceTitle: 'Mock: Hacker News — Ask HN: What problem are you solving?',
+        title: 'Async Status Digest for Small Teams',
+        summary: 'Small product teams burn 3–5 hours per week in unnecessary sync meetings whose only purpose is sharing status. A lightweight, opinionated async standup tool designed for teams under 15 would reclaim that time without requiring a process overhaul.',
+        painPoints: [
+          'Daily standups routinely run long because there is no structured input format',
+          'Status shared in Slack threads is impossible to review retroactively',
+          'Project managers spend hours chasing updates that should surface automatically',
+        ],
+        targetAudience: 'Engineering leads at 5–20-person product teams who run daily standups',
+        competitorGap: 'Geekbot and Standuply automate the form but produce noisy Slack threads nobody reads. No tool combines structured async input with a digest that is actually worth reading.',
+        mvpConcept: 'A Slack bot that prompts three questions at 9am, collects answers, and posts a single team digest at 9:05am. No dashboards, no integrations — just the bot and one daily digest.',
+        gtmStrategy: 'Cold-email 50 engineering managers on LinkedIn who post about remote work. Post in relevant Slack communities.',
+        opportunity: 'The async work market is accelerating post-pandemic with millions of remote-first teams still running synchronous standups out of habit.',
+        problem: 'Teams lose hours each week to status-sharing rituals that exist only because there is no better system.',
+        marketFit: 'Strong fit with remote-first engineering teams at growth-stage startups who value async culture but lack tooling.',
+        businessModel: 'Per-seat SaaS at $5/seat/month. 10-person team = $50/month. First year target: 200 teams = $120k ARR.',
+        valueProp: 'Replace your daily standup with a 60-second async digest that surfaces blockers, not just status.',
+        whyNow: 'Remote work norms are permanent. Teams that adopted async during the pandemic are now codifying it into tooling.',
+        timing: 'Ideal — remote-first is mainstream, async culture is established, but tooling is still primitive.',
+        communitySignal: 'High discussion volume in r/remotework and Hacker News. Multiple "anyone know a good async standup tool?" posts per week.',
+        proofSignals: [
+          'Geekbot has 40k+ paying customers despite poor UX',
+          '#remote-work channels in every major SaaS company Slack',
+          'HN thread with 300+ comments on async standups',
+        ],
+        keywords: ['async standup', 'remote team tools', 'engineering productivity', 'team communication', 'slack bot'],
+        category: 'productivity',
+        scores: { opportunity: 79, feasibility: 93, novelty: 71, timing: 82, marketFit: 85 },
+        tags: ['async work', 'team tools', 'productivity'],
+      },
     ],
-    targetAudience: 'Engineering leads at 5–20-person product teams who run daily standups and feel they waste at least 30 minutes a day on status overhead',
-    competitorGap: 'Geekbot and Standuply automate the form but produce noisy Slack noise nobody reads. Linear and Jira surface task status but not human context. No tool combines structured async input with a digest that is actually worth reading.',
-    mvpConcept: 'A Slack bot that prompts three questions at 9am, collects answers, and posts a single team digest at 9:05am. No dashboards, no integrations, no settings — just the bot and one beautiful daily digest.',
-    gtmStrategy: 'Cold-email 50 engineering managers on LinkedIn who post about remote work. Post in relevant Slack communities. Write a "we killed our daily standup" teardown post and submit to Hacker News.',
-    opportunity: 'The async work market is accelerating post-pandemic with millions of remote-first teams still running synchronous standups out of habit. The timing is ideal for a focused, opinionated tool.',
-    problem: 'Teams lose hours each week to status-sharing rituals that exist only because there is no better system — not because sync meetings add value.',
-    marketFit: 'Strong fit with remote-first engineering teams at growth-stage startups who value async culture but lack tooling to support it.',
-    businessModel: 'Per-seat SaaS at $5/seat/month. 10-person team = $50/month. First year target: 200 teams = $120k ARR.',
-    valueProp: 'Replace your daily standup with a 60-second async digest that surfaces blockers, not just status.',
-    whyNow: 'Remote work norms are permanent. Teams that adopted async during the pandemic are now codifying it into tooling. The window for a focused async standup tool is open before Slack and Linear build it in.',
-    timing: 'Ideal — remote-first is mainstream, async culture is established, but tooling is still primitive.',
-    communitySignal: 'High discussion volume in r/remotework, Hacker News, and remote-first Slack communities. Multiple "anyone know a good async standup tool?" posts per week.',
-    proofSignals: [
-      'Geekbot has 40k+ paying customers despite a poor UX',
-      '#remote-work channels in every major SaaS company Slack',
-      'Hacker News thread "Ask HN: how does your team do async standups?" with 300+ comments',
-    ],
-    keywords: ['async standup', 'remote team tools', 'engineering productivity', 'team communication', 'slack bot'],
-    category: 'productivity',
-    scores: { opportunity: 79, feasibility: 93, novelty: 71, timing: 82, marketFit: 85 },
-    tags: ['async work', 'team tools', 'productivity'],
   };
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are OpHunt, an expert startup opportunity analyst. Given content from a URL or signal source, extract exactly one specific, buildable startup opportunity that a solo founder could ship in 90 days.
+const SYSTEM_PROMPT = `You are OpHunt, an expert startup opportunity analyst. Given content from a URL or signal source, identify up to 3 genuinely distinct, buildable startup opportunities a solo founder could ship in 90 days.
 
-Return ONLY a raw JSON object — no markdown fences, no code blocks, no preamble, no explanation. Start your response with { and end with }. The exact structure:
+CRITICAL QUALITY STANDARDS — read carefully before responding:
+- Only include ideas with quality_confidence >= 65. Quality means: a clear unmet need backed by evidence in the source, an identifiable ICP, and a realistic solo-founder scope.
+- Do NOT pad with weak or generic ideas. 1 strong idea is far better than 3 mediocre ones.
+- If the source yields no viable opportunity, return an empty ideas array with a short no_ideas_reason. Be honest — do not manufacture ideas from thin air.
+- Reject ideas that are: too vague to act on, already dominated by well-funded incumbents with no obvious wedge, pure content/SEO plays, or require a team of 5+ to ship.
+- Each idea in the array must be meaningfully distinct — no variations of the same concept.
+
+Return ONLY a raw JSON object — no markdown fences, no code blocks, no preamble. Start with { and end with }:
 
 {
-  "sourceTitle": "Brief descriptive title of the source content (10 words max)",
-  "title": "Punchy startup idea title (5-8 words, no buzzwords)",
-  "summary": "2-3 sentences describing the opportunity. Lead with the pain size. End with why now.",
-  "painPoints": ["Specific pain point 1", "Specific pain point 2", "Specific pain point 3"],
-  "targetAudience": "Specific ICP: job title, company size, specific context that makes this painful",
-  "competitorGap": "2-3 sentences on what existing solutions miss and why this specific gap is the opening",
-  "mvpConcept": "3-4 sentences on the minimum viable product to validate the core thesis in 90 days",
-  "gtmStrategy": "3-4 sentences on first 100 customers. Name specific channels, communities, or tactics.",
-  "opportunity": "2-3 sentences on the size and urgency of the market opportunity",
-  "problem": "2-3 sentences precisely defining the core problem this solves",
-  "marketFit": "2-3 sentences on product-market fit: why this specific solution fits this specific audience now",
-  "businessModel": "2-3 sentences on how this makes money: pricing model, unit economics, path to $10k MRR",
-  "valueProp": "One punchy sentence — the core value proposition (what does the user get and why it beats alternatives)",
-  "whyNow": "2-3 sentences on why this specific moment in time is right to build this",
-  "timing": "One sentence summary of market timing (early/ideal/late and why)",
-  "communitySignal": "1-2 sentences on community discussion, forum posts, or social signals showing the pain is real",
-  "proofSignals": ["Signal 1 with data point", "Signal 2 with data point", "Signal 3 with data point"],
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-  "category": "one of: AI tools | dev tools | consumer apps | B2B SaaS | fintech | productivity | other",
-  "scores": {
-    "opportunity": <integer 0-100, size and urgency of the market need>,
-    "feasibility": <integer 0-100, how buildable for a solo founder in 90 days>,
-    "novelty": <integer 0-100, how differentiated vs existing solutions>,
-    "timing": <integer 0-100, how ideal is the market timing right now>,
-    "marketFit": <integer 0-100, how well does this solution fit this specific audience>
-  },
-  "tags": ["tag1", "tag2", "tag3"]
-}`;
+  "ideas": [
+    {
+      "quality_confidence": <integer 0-100, your honest assessment — be strict>,
+      "sourceTitle": "Brief title of the source (10 words max)",
+      "title": "Punchy startup idea title (5-8 words, no buzzwords)",
+      "summary": "2-3 sentences. Lead with pain size. End with why now.",
+      "painPoints": ["Specific pain 1", "Specific pain 2", "Specific pain 3"],
+      "targetAudience": "Specific ICP: job title, company size, context that makes this painful",
+      "competitorGap": "2-3 sentences on what existing solutions miss and why the gap is real",
+      "mvpConcept": "3-4 sentences on the minimum viable product to validate in 90 days",
+      "gtmStrategy": "3-4 sentences on first 100 customers. Name specific channels and tactics.",
+      "opportunity": "2-3 sentences on market size and urgency",
+      "problem": "2-3 sentences precisely defining the core problem",
+      "marketFit": "2-3 sentences on why this solution fits this audience right now",
+      "businessModel": "2-3 sentences on pricing, unit economics, path to $10k MRR",
+      "valueProp": "One punchy sentence — what does the user get and why does it beat alternatives",
+      "whyNow": "2-3 sentences on why this specific moment is right",
+      "timing": "One sentence: early/ideal/late and why",
+      "communitySignal": "1-2 sentences on forum posts, social signals showing the pain is real",
+      "proofSignals": ["Signal 1 with data point", "Signal 2 with data point", "Signal 3 with data point"],
+      "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+      "category": "one of: AI tools | dev tools | consumer apps | B2B SaaS | fintech | productivity | other",
+      "scores": {
+        "opportunity": <integer 0-100, market size and urgency>,
+        "feasibility": <integer 0-100, buildable for a solo founder in 90 days>,
+        "novelty": <integer 0-100, differentiated vs existing solutions>,
+        "timing": <integer 0-100, how ideal is market timing right now>,
+        "marketFit": <integer 0-100, how well solution fits this specific audience>
+      },
+      "tags": ["tag1", "tag2", "tag3"]
+    }
+  ],
+  "no_ideas_reason": null
+}
 
-// ─── Parse raw LLM text into structured idea ──────────────────────────────────
+If there are no viable ideas, return: { "ideas": [], "no_ideas_reason": "Short honest explanation of why this source doesn't surface a buildable opportunity." }`;
 
-function parseLlmResponse(text: string): Omit<AnalyzedIdea, 'id' | 'url' | 'source' | 'isUnlocked' | 'createdAt'> {
+// ─── Parse LLM response → AnalysisResult ─────────────────────────────────────
+
+const QUALITY_THRESHOLD = 65;
+
+function parseLlmResponse(
+  text: string,
+  url: string,
+  source: string,
+): AnalysisResult {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const p = JSON.parse(cleaned) as Record<string, unknown>;
-
-  const scores = (p.scores || {}) as Record<string, unknown>;
-
-  return {
-    sourceTitle: (p.sourceTitle as string) || '',
-    title: (p.title as string) || 'Untitled Opportunity',
-    summary: (p.summary as string) || '',
-    painPoints: (p.painPoints as string[]) || [],
-    targetAudience: (p.targetAudience as string) || '',
-    competitorGap: (p.competitorGap as string) || '',
-    mvpConcept: (p.mvpConcept as string) || '',
-    gtmStrategy: (p.gtmStrategy as string) || '',
-    opportunity: (p.opportunity as string) || '',
-    problem: (p.problem as string) || '',
-    marketFit: (p.marketFit as string) || '',
-    businessModel: (p.businessModel as string) || '',
-    valueProp: (p.valueProp as string) || '',
-    whyNow: (p.whyNow as string) || '',
-    timing: (p.timing as string) || '',
-    communitySignal: (p.communitySignal as string) || '',
-    proofSignals: (p.proofSignals as string[]) || [],
-    keywords: (p.keywords as string[]) || [],
-    category: (CATEGORIES.includes(p.category as Category) ? p.category as Category : 'other'),
-    scores: {
-      opportunity: Number(scores.opportunity) || 0,
-      feasibility: Number(scores.feasibility) || 0,
-      novelty: Number(scores.novelty) || 0,
-      timing: Number(scores.timing) || 0,
-      marketFit: Number(scores.marketFit) || 0,
-    },
-    tags: (p.tags as string[]) || [],
+  const p = JSON.parse(cleaned) as {
+    ideas?: Record<string, unknown>[];
+    no_ideas_reason?: string | null;
   };
+
+  const rawIdeas = Array.isArray(p.ideas) ? p.ideas : [];
+  const noIdeasReason = p.no_ideas_reason || undefined;
+
+  const ideas = rawIdeas
+    .filter(raw => {
+      const confidence = Number(raw.quality_confidence) || 0;
+      if (confidence < QUALITY_THRESHOLD) {
+        console.log(`[analyze] Dropping idea "${raw.title}" — quality_confidence ${confidence} < ${QUALITY_THRESHOLD}`);
+        return false;
+      }
+      return true;
+    })
+    .map(raw => {
+      const scores = (raw.scores || {}) as Record<string, unknown>;
+      return {
+        url,
+        source,
+        sourceTitle: (raw.sourceTitle as string) || '',
+        title: (raw.title as string) || 'Untitled Opportunity',
+        summary: (raw.summary as string) || '',
+        painPoints: (raw.painPoints as string[]) || [],
+        targetAudience: (raw.targetAudience as string) || '',
+        competitorGap: (raw.competitorGap as string) || '',
+        mvpConcept: (raw.mvpConcept as string) || '',
+        gtmStrategy: (raw.gtmStrategy as string) || '',
+        opportunity: (raw.opportunity as string) || '',
+        problem: (raw.problem as string) || '',
+        marketFit: (raw.marketFit as string) || '',
+        businessModel: (raw.businessModel as string) || '',
+        valueProp: (raw.valueProp as string) || '',
+        whyNow: (raw.whyNow as string) || '',
+        timing: (raw.timing as string) || '',
+        communitySignal: (raw.communitySignal as string) || '',
+        proofSignals: (raw.proofSignals as string[]) || [],
+        keywords: (raw.keywords as string[]) || [],
+        category: CATEGORIES.includes(raw.category as Category) ? raw.category as Category : 'other',
+        scores: {
+          opportunity: Number(scores.opportunity) || 0,
+          feasibility: Number(scores.feasibility) || 0,
+          novelty: Number(scores.novelty) || 0,
+          timing: Number(scores.timing) || 0,
+          marketFit: Number(scores.marketFit) || 0,
+        },
+        tags: (raw.tags as string[]) || [],
+      } satisfies Omit<AnalyzedIdea, 'id' | 'isUnlocked' | 'createdAt'>;
+    });
+
+  if (ideas.length === 0 && !noIdeasReason) {
+    return {
+      ideas: [],
+      noIdeasReason: 'No opportunities met the quality threshold for this source.',
+    };
+  }
+
+  return { ideas, noIdeasReason: ideas.length === 0 ? noIdeasReason : undefined };
 }
 
 // ─── Main analysis function ───────────────────────────────────────────────────
@@ -177,19 +228,17 @@ export async function analyzeContent(opts: {
   source?: string;
   rawContent?: string;
   rawTitle?: string;
-}): Promise<Omit<AnalyzedIdea, 'id' | 'isUnlocked' | 'createdAt'>> {
+}): Promise<AnalysisResult> {
   const source = opts.source || 'url';
 
-  // Return mock in dev mode
   if (process.env.ARGENS_MOCK === '1') {
-    console.log('[analyze] ARGENS_MOCK=1 — returning canned idea');
-    return mockIdea(opts.url, source);
+    console.log('[analyze] ARGENS_MOCK=1 — returning mock result');
+    return mockResult(opts.url, source);
   }
 
   let pageContent = opts.rawContent || '';
   let pageTitle = opts.rawTitle || '';
 
-  // Scrape if no content provided
   if (!pageContent && opts.url) {
     try {
       const scraped = await scrapeUrl(opts.url);
@@ -201,21 +250,14 @@ export async function analyzeContent(opts: {
   }
 
   const userContent = pageContent
-    ? `URL: ${opts.url}\n\nPage title: ${pageTitle}\n\nContent:\n${pageContent.slice(0, 10000)}`
-    : `URL: ${opts.url}\n\nNo content available. Analyze based on URL structure and domain context.`;
+    ? `URL: ${opts.url}\n\nPage title: ${pageTitle}\n\nContent:\n${pageContent.slice(0, 12000)}`
+    : `URL: ${opts.url}\n\nNo content available. Analyze based on URL structure, domain, and path context.`;
 
-  const text = await llmComplete(SYSTEM_PROMPT, userContent, 2500);
-  const parsed = parseLlmResponse(text);
-
-  return {
-    ...parsed,
-    url: opts.url,
-    source,
-    sourceTitle: parsed.sourceTitle || pageTitle || opts.url,
-  };
+  const text = await llmComplete(SYSTEM_PROMPT, userContent, 3500);
+  return parseLlmResponse(text, opts.url, source);
 }
 
-// ─── Persist to DB ────────────────────────────────────────────────────────────
+// ─── Format DB row → AnalyzedIdea ─────────────────────────────────────────────
 
 export function formatIdea(row: Record<string, unknown>): AnalyzedIdea {
   return {
@@ -254,10 +296,12 @@ export function formatIdea(row: Record<string, unknown>): AnalyzedIdea {
   };
 }
 
+// ─── Persist a single idea to DB ──────────────────────────────────────────────
+
 export async function persistIdea(
   db: Client,
   idea: Omit<AnalyzedIdea, 'id' | 'isUnlocked' | 'createdAt'>,
-  opts: { isUnlocked?: boolean } = {},
+  opts: { isUnlocked?: boolean; sessionId?: string } = {},
 ): Promise<AnalyzedIdea> {
   const id = `idea_${Date.now()}_${randomUUID().slice(0, 7)}`;
   await db.execute({
@@ -268,7 +312,7 @@ export async function persistIdea(
       why_now, timing, community_signal, proof_signals, keywords,
       category, source,
       score_opportunity, score_feasibility, score_novelty, score_timing, score_market_fit,
-      tags, is_unlocked
+      tags, is_unlocked, session_id
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?,
@@ -276,7 +320,7 @@ export async function persistIdea(
       ?, ?, ?, ?, ?,
       ?, ?,
       ?, ?, ?, ?, ?,
-      ?, ?
+      ?, ?, ?
     )`,
     args: [
       id, idea.url, idea.sourceTitle, idea.title, idea.summary,
@@ -289,9 +333,10 @@ export async function persistIdea(
       idea.scores.opportunity, idea.scores.feasibility, idea.scores.novelty,
       idea.scores.timing, idea.scores.marketFit,
       JSON.stringify(idea.tags), opts.isUnlocked ? 1 : 0,
+      opts.sessionId || '',
     ],
   });
 
-  const rowResult = await db.execute({ sql: 'SELECT * FROM ideas WHERE id = ?', args: [id] });
-  return formatIdea(rowResult.rows[0] as unknown as Record<string, unknown>);
+  const row = await db.execute({ sql: 'SELECT * FROM ideas WHERE id = ?', args: [id] });
+  return formatIdea(row.rows[0] as unknown as Record<string, unknown>);
 }

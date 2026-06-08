@@ -4,6 +4,7 @@ import Nav from '../components/Nav';
 import Footer from '../components/Footer';
 import ScoreRing from '../components/ScoreRing';
 import { apiFetch } from '../lib/api';
+import { useAuthContext } from '../App';
 
 interface IdeaDetail {
   id: string;
@@ -82,17 +83,22 @@ function truncate(text: string, len: number): string {
 
 export default function Report() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuthContext();
   const [idea, setIdea] = useState<IdeaDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lockHovered, setLockHovered] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'validate' | 'launch'>('overview');
+  const [paystackEmail, setPaystackEmail] = useState('');
+  const [paystackLoading, setPaystackLoading] = useState(false);
+  const [paystackError, setPaystackError] = useState('');
   const [activePlatform, setActivePlatform] = useState<'reddit' | 'twitter'>('reddit');
   const [copiedNames, setCopiedNames] = useState<Record<number, boolean>>({});
   const [copiedPosts, setCopiedPosts] = useState<Record<string, boolean>>({});
   const [copiedSurveyLink, setCopiedSurveyLink] = useState(false);
   const [copiedWaitlistLink, setCopiedWaitlistLink] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const blurRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
@@ -137,6 +143,27 @@ export default function Report() {
         setLoading(false);
       });
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !user) return;
+    apiFetch('/api/me/saved', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { ideas: { id: string }[] } | null) => {
+        if (d) setIsSaved(d.ideas.some(i => i.id === id));
+      })
+      .catch(() => {});
+  }, [id, user]);
+
+  async function handleToggleSave() {
+    if (!user) { window.location.href = '/sign-in'; return; }
+    if (isSaved) {
+      await apiFetch(`/api/ideas/${id}/save`, { method: 'DELETE', credentials: 'include' });
+      setIsSaved(false);
+    } else {
+      await apiFetch(`/api/ideas/${id}/save`, { method: 'POST', credentials: 'include' });
+      setIsSaved(true);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -404,13 +431,29 @@ export default function Report() {
             ))}
           </div>
 
-          {/* Title */}
-          <h1
-            className="font-heading font-medium"
-            style={{ fontSize: 'clamp(28px, 5vw, 48px)', letterSpacing: '-1.5px', color: '#0a0a0a', marginBottom: '20px', lineHeight: 1.1 }}
-          >
-            {idea.title}
-          </h1>
+          {/* Title + save */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+            <h1
+              className="font-heading font-medium"
+              style={{ fontSize: 'clamp(28px, 5vw, 48px)', letterSpacing: '-1.5px', color: '#0a0a0a', lineHeight: 1.1, flex: 1, margin: 0 }}
+            >
+              {idea.title}
+            </h1>
+            <button
+              onClick={handleToggleSave}
+              title={isSaved ? 'Remove from saved' : 'Save idea'}
+              style={{
+                flexShrink: 0, marginTop: '8px',
+                background: isSaved ? '#ff4d8b' : 'rgba(10,10,10,0.06)',
+                border: 'none', borderRadius: '50%',
+                width: '42px', height: '42px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '20px', transition: 'background 0.2s',
+              }}
+            >
+              {isSaved ? '❤️' : '🤍'}
+            </button>
+          </div>
 
           {/* Source */}
           <p className="font-body mb-10" style={{ fontSize: '13px', color: 'rgba(10,10,10,0.35)' }}>
@@ -678,7 +721,7 @@ export default function Report() {
                       padding: '36px 40px',
                       textAlign: 'center',
                       boxShadow: '0 24px 64px rgba(10,10,10,0.14)',
-                      maxWidth: '360px',
+                      maxWidth: '390px',
                       width: '100%',
                       margin: '32px 16px',
                     }}
@@ -700,11 +743,12 @@ export default function Report() {
                       className="font-body"
                       style={{ fontSize: '14px', lineHeight: '1.6', color: 'rgba(10,10,10,0.5)', marginBottom: '24px' }}
                     >
-                      Competitor gap, MVP concept, and your first 100 customers strategy — all in one $1 unlock.
+                      Competitor gap, MVP, GTM, business model — everything you need to start building. One-time unlock.
                     </p>
+                    {/* Primary: LemonSqueezy — global */}
                     <a
-                      href={`https://ophunt.lemonsqueezy.com/checkout/buy/bccb0865-57d1-4d9c-b84e-07e75d91206c?embed=1&checkout[custom][idea_id]=${idea.id}`}
-                      className="lemonsqueezy-button w-full font-body font-semibold lock-btn"
+                      href={`https://ophunt.lemonsqueezy.com/checkout/buy/bccb0865-57d1-4d9c-b84e-07e75d91206c?embed=1&checkout[custom][idea_id]=${idea.id}${user ? `&checkout[custom][user_id]=${user.id}` : ''}`}
+                      className="lemonsqueezy-button font-body font-semibold lock-btn"
                       style={{
                         display: 'block',
                         background: '#ff4d8b',
@@ -713,10 +757,10 @@ export default function Report() {
                         borderRadius: '12px',
                         padding: '14px',
                         fontSize: '15px',
-                        letterSpacing: '0.2px',
                         textAlign: 'center',
                         textDecoration: 'none',
                         cursor: 'pointer',
+                        marginBottom: '10px',
                         transition: 'background 0.15s ease, transform 0.1s ease',
                       }}
                       onMouseEnter={e => {
@@ -728,21 +772,100 @@ export default function Report() {
                         (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)';
                       }}
                     >
-                      Unlock for $1
+                      Unlock for $1 — Card / PayPal
                     </a>
-                    <p className="font-body mt-3" style={{ fontSize: '12px', color: 'rgba(10,10,10,0.3)' }}>
-                      Payments powered by Lemon Squeezy
+
+                    {/* Secondary: Paystack — Nigeria / Africa */}
+                    {!paystackLoading ? (
+                      paystackEmail === '' && !user ? (
+                        <button
+                          onClick={() => setPaystackEmail(' ')}
+                          style={{
+                            display: 'block', width: '100%',
+                            background: '#f5f0e0', color: '#0a0a0a',
+                            border: '1px solid rgba(10,10,10,0.12)',
+                            borderRadius: '12px', padding: '12px 14px',
+                            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                            fontFamily: 'inherit', marginBottom: '4px',
+                          }}
+                        >
+                          Pay with Paystack (₦) — Nigeria / Africa
+                        </button>
+                      ) : (
+                        <form
+                          onSubmit={async e => {
+                            e.preventDefault();
+                            const email = user?.email || paystackEmail.trim();
+                            if (!email) return;
+                            setPaystackLoading(true);
+                            setPaystackError('');
+                            try {
+                              const r = await apiFetch('/api/payments/paystack/initiate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ ideaId: idea.id, email, userId: user?.id }),
+                              });
+                              const data = await r.json() as { checkoutUrl?: string; error?: string };
+                              if (data.checkoutUrl) {
+                                startPolling();
+                                window.location.href = data.checkoutUrl;
+                              } else {
+                                setPaystackError(data.error || 'Paystack unavailable');
+                                setPaystackLoading(false);
+                              }
+                            } catch {
+                              setPaystackError('Could not reach server');
+                              setPaystackLoading(false);
+                            }
+                          }}
+                          style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                        >
+                          {!user && (
+                            <input
+                              type="email"
+                              placeholder="your@email.com"
+                              value={paystackEmail.trim()}
+                              onChange={e => setPaystackEmail(e.target.value)}
+                              required
+                              style={{
+                                padding: '10px 12px', fontSize: '14px', borderRadius: '10px',
+                                border: '1px solid rgba(10,10,10,0.15)', background: '#fafafa',
+                                fontFamily: 'inherit', outline: 'none',
+                              }}
+                            />
+                          )}
+                          <button
+                            type="submit"
+                            style={{
+                              display: 'block', width: '100%',
+                              background: '#008751', color: '#fff',
+                              border: 'none', borderRadius: '12px',
+                              padding: '12px 14px', fontSize: '14px',
+                              fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                            }}
+                          >
+                            {user ? 'Pay with Paystack (₦) →' : 'Continue with Paystack →'}
+                          </button>
+                        </form>
+                      )
+                    ) : (
+                      <p style={{ fontSize: '13px', color: 'rgba(10,10,10,0.4)', margin: '8px 0' }}>Redirecting to Paystack…</p>
+                    )}
+                    {paystackError && (
+                      <p style={{ fontSize: '12px', color: '#cc2222', margin: '4px 0 0' }}>{paystackError}</p>
+                    )}
+
+                    <p className="font-body" style={{ fontSize: '11px', color: 'rgba(10,10,10,0.25)', marginTop: '14px', marginBottom: 0 }}>
+                      Secured checkout · Lemon Squeezy or Paystack
                     </p>
                     <button
                       onClick={() => startPolling()}
                       style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'rgba(10,10,10,0.4)',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        marginTop: '8px',
-                        textDecoration: 'underline',
+                        background: 'transparent', border: 'none',
+                        color: 'rgba(10,10,10,0.4)', fontSize: '12px',
+                        cursor: 'pointer', marginTop: '8px', textDecoration: 'underline',
+                        fontFamily: 'inherit',
                       }}
                     >
                       Already paid? Click to refresh

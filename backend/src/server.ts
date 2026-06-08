@@ -2,10 +2,12 @@ import 'dotenv/config';
 import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { createClient } from '@libsql/client';
-import { createHmac } from 'crypto';
+import { createHmac, createHash, randomBytes } from 'crypto';
 import fs, { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import jwt from 'jsonwebtoken';
 
 import { analyzeContent, persistIdea, formatIdea } from './analyze.js';
 import { agentStatus, discoverServices } from './argens.js';
@@ -71,11 +73,20 @@ app.post('/api/webhooks/lemonsqueezy', express.raw({ type: '*/*' }), async (req,
   console.log('[LS webhook] Event received:', eventName);
 
   if (eventName === 'order_created') {
-    const ideaId = (meta?.custom_data as Record<string, unknown> | undefined)?.idea_id as string | undefined;
+    const customData = meta?.custom_data as Record<string, unknown> | undefined;
+    const ideaId = customData?.idea_id as string | undefined;
+    const userId = customData?.user_id as string | undefined;
+    const orderRef = ((payload.data as Record<string, unknown>)?.id as string) || '';
+    const totalCents = (((payload.data as Record<string, unknown>)?.attributes as Record<string, unknown>)?.total as number) || 100;
     if (ideaId) {
       try {
         await db.execute({ sql: 'UPDATE ideas SET is_unlocked = 1 WHERE id = ?', args: [ideaId] });
-        console.log('[LS webhook] Unlocked idea:', ideaId);
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO purchases (id, user_id, idea_id, amount_usd, payment_method, payment_ref)
+                VALUES (?, ?, ?, ?, 'lemonsqueezy', ?)`,
+          args: [randomUUID(), userId || null, ideaId, totalCents / 100, orderRef],
+        });
+        console.log('[LS webhook] Unlocked idea:', ideaId, 'user:', userId || 'anonymous');
       } catch (err) {
         console.error('[LS webhook] DB update failed:', err);
         return res.status(500).json({ error: 'DB update failed' });
@@ -103,6 +114,62 @@ app.post('/api/webhooks/lemonsqueezy/bypass', express.json(), async (req, res) =
   }
 });
 
+// ─── Paystack webhook — MUST be registered before express.json() ──────────────
+app.post('/api/webhooks/paystack', express.raw({ type: '*/*' }), async (req, res) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY || '';
+  const signature = req.headers['x-paystack-signature'] as string;
+  const rawBody = req.body as Buffer;
+
+  if (!signature || !secret) {
+    console.warn('[Paystack webhook] Missing signature or secret key — rejecting');
+    return res.status(400).json({ error: 'Missing signature or PAYSTACK_SECRET_KEY' });
+  }
+
+  const { createHmac: hmac } = await import('crypto');
+  const expected = hmac('sha512', secret).update(rawBody).digest('hex');
+  if (signature !== expected) {
+    console.warn('[Paystack webhook] Signature mismatch — rejecting');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody.toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+
+  const event = payload.event as string | undefined;
+  console.log('[Paystack webhook] Event received:', event);
+
+  if (event === 'charge.success') {
+    const data = payload.data as Record<string, unknown> | undefined;
+    const metadata = data?.metadata as Record<string, unknown> | undefined;
+    const ideaId = metadata?.idea_id as string | undefined;
+    const userId = metadata?.user_id as string | undefined;
+    const reference = data?.reference as string || '';
+    const amountKobo = Number(data?.amount) || 100;
+
+    if (ideaId) {
+      try {
+        await db.execute({ sql: 'UPDATE ideas SET is_unlocked = 1 WHERE id = ?', args: [ideaId] });
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO purchases (id, user_id, idea_id, amount_usd, payment_method, payment_ref)
+                VALUES (?, ?, ?, ?, 'paystack', ?)`,
+          args: [randomUUID(), userId || null, ideaId, amountKobo / 100000, reference],
+        });
+        console.log('[Paystack webhook] Unlocked idea:', ideaId, 'user:', userId || 'anonymous');
+      } catch (err) {
+        console.error('[Paystack webhook] DB update failed:', err);
+        return res.status(500).json({ error: 'DB update failed' });
+      }
+    }
+  }
+
+  return res.status(200).json({ received: true });
+});
+
+app.use(cookieParser());
 app.use(express.json());
 
 // ─── Database setup ───────────────────────────────────────────────────────────
@@ -159,11 +226,12 @@ const CREATE_TABLE = `
     category TEXT NOT NULL DEFAULT 'other',
     source TEXT NOT NULL DEFAULT 'url',
     score_timing INTEGER NOT NULL DEFAULT 0,
-    score_market_fit INTEGER NOT NULL DEFAULT 0
+    score_market_fit INTEGER NOT NULL DEFAULT 0,
+    session_id TEXT NOT NULL DEFAULT ''
   )
 `;
 
-// Idempotent migration: add any missing v2 columns to existing tables
+// Idempotent migration: add any missing columns to existing tables
 const V2_COLUMNS = [
   ['opportunity', 'TEXT NOT NULL DEFAULT \'\''],
   ['problem', 'TEXT NOT NULL DEFAULT \'\''],
@@ -179,7 +247,43 @@ const V2_COLUMNS = [
   ['source', 'TEXT NOT NULL DEFAULT \'url\''],
   ['score_timing', 'INTEGER NOT NULL DEFAULT 0'],
   ['score_market_fit', 'INTEGER NOT NULL DEFAULT 0'],
+  ['session_id', 'TEXT NOT NULL DEFAULT \'\''],
 ] as const;
+
+// Auth + user tables
+const CREATE_AUTH_TABLES = `
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_sign_in_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS magic_links (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS purchases (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+    amount_usd REAL NOT NULL DEFAULT 1.0,
+    payment_method TEXT NOT NULL DEFAULT 'lemonsqueezy',
+    payment_ref TEXT NOT NULL DEFAULT '',
+    credits INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS saved_ideas (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, idea_id)
+  );
+`;
 
 async function migrateSchema() {
   const info = await db.execute('PRAGMA table_info(ideas)');
@@ -189,6 +293,10 @@ async function migrateSchema() {
       await db.execute(`ALTER TABLE ideas ADD COLUMN ${col} ${def}`);
       console.log(`[db] Added column: ${col}`);
     }
+  }
+  // Auth tables (idempotent — CREATE TABLE IF NOT EXISTS)
+  for (const stmt of CREATE_AUTH_TABLES.split(';').map(s => s.trim()).filter(Boolean)) {
+    await db.execute(stmt);
   }
 }
 
@@ -429,6 +537,255 @@ async function migrateSchema() {
   startFeedScheduler(db);
 })();
 
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+const JWT_SECRET = process.env.JWT_SECRET || 'ophunt-dev-secret-change-in-prod';
+const APP_URL = process.env.APP_URL || 'http://localhost:4100';
+// FRONTEND_URL is where the React app lives — different from APP_URL in dev
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
+const COOKIE_NAME = 'ophunt_auth';
+
+interface JwtPayload { userId: string; email: string }
+
+function signToken(payload: JwtPayload): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
+}
+
+function verifyToken(token: string): JwtPayload | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
+function hashToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+async function sendMagicLinkEmail(email: string, link: string): Promise<void> {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) {
+    // Dev fallback: log link to console if Resend isn't configured
+    console.log(`[auth] RESEND_API_KEY not set. Magic link for ${email}: ${link}`);
+    return;
+  }
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM || 'OpHunt <noreply@ophunt.io>',
+      to: [email],
+      subject: 'Sign in to OpHunt',
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+          <h2 style="font-size:24px;font-weight:600;margin:0 0 8px">Your sign-in link</h2>
+          <p style="color:#555;margin:0 0 24px">Click the button below to sign in to OpHunt. This link expires in 15 minutes.</p>
+          <a href="${link}" style="display:inline-block;background:#ff4d8b;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:600;font-size:15px">Sign in to OpHunt</a>
+          <p style="color:#999;font-size:12px;margin:24px 0 0">If you didn't request this, you can safely ignore it.</p>
+        </div>
+      `,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend API error: ${err}`);
+  }
+}
+
+// Auth middleware — reads httpOnly cookie, attaches user to req
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const token = req.cookies?.[COOKIE_NAME] as string | undefined;
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ error: 'Session expired — please sign in again' });
+  (req as express.Request & { user: JwtPayload }).user = payload;
+  next();
+}
+
+// ─── Auth routes ──────────────────────────────────────────────────────────────
+
+// Send magic link
+app.post('/api/auth/send-magic-link', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email is required' });
+  }
+
+  // Upsert user
+  const userId = `user_${randomUUID().slice(0, 12)}`;
+  await db.execute({
+    sql: `INSERT INTO users (id, email) VALUES (?, ?)
+          ON CONFLICT(email) DO UPDATE SET email = email`,
+    args: [userId, email.toLowerCase()],
+  });
+  const userRow = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email.toLowerCase()] });
+  const realUserId = (userRow.rows[0] as unknown as { id: string }).id;
+
+  // Generate token
+  const rawToken = randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  await db.execute({
+    sql: 'INSERT INTO magic_links (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)',
+    args: [randomUUID(), realUserId, tokenHash, expiresAt],
+  });
+
+  const link = `${APP_URL}/api/auth/verify?token=${rawToken}`;
+  try {
+    await sendMagicLinkEmail(email.toLowerCase(), link);
+  } catch (err) {
+    console.error('[auth] Email send failed:', err instanceof Error ? err.message : err);
+    return res.status(502).json({ error: 'Failed to send email — check RESEND_API_KEY' });
+  }
+
+  res.json({ ok: true, message: 'Check your email for the sign-in link' });
+});
+
+// Verify magic link token (server-side redirect)
+app.get('/api/auth/verify', async (req, res) => {
+  const { token } = req.query as { token?: string };
+  if (!token) return res.redirect(`${FRONTEND_URL}/?auth=invalid`);
+
+  const tokenHash = hashToken(token);
+  const now = new Date().toISOString();
+
+  const linkRow = await db.execute({
+    sql: `SELECT ml.id, ml.user_id, ml.expires_at, ml.used_at, u.email
+          FROM magic_links ml JOIN users u ON u.id = ml.user_id
+          WHERE ml.token_hash = ?`,
+    args: [tokenHash],
+  });
+  const link = linkRow.rows[0] as unknown as {
+    id: string; user_id: string; expires_at: string; used_at: string | null; email: string;
+  } | undefined;
+
+  if (!link) return res.redirect(`${FRONTEND_URL}/?auth=invalid`);
+  if (link.used_at) return res.redirect(`${FRONTEND_URL}/?auth=used`);
+  if (link.expires_at < now) return res.redirect(`${FRONTEND_URL}/?auth=expired`);
+
+  // Mark used + update last sign in
+  await Promise.all([
+    db.execute({ sql: 'UPDATE magic_links SET used_at = ? WHERE id = ?', args: [now, link.id] }),
+    db.execute({ sql: 'UPDATE users SET last_sign_in_at = ? WHERE id = ?', args: [now, link.user_id] }),
+  ]);
+
+  const jwtToken = signToken({ userId: link.user_id, email: link.email });
+  res.cookie(COOKIE_NAME, jwtToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+  res.redirect(`${FRONTEND_URL}/explore`);
+});
+
+// Current user
+app.get('/api/auth/me', (req, res) => {
+  const token = (req.cookies as Record<string, string>)?.[COOKIE_NAME];
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ error: 'Session expired' });
+  res.json({ user: { id: payload.userId, email: payload.email } });
+});
+
+// Sign out
+app.post('/api/auth/sign-out', (_req, res) => {
+  res.clearCookie(COOKIE_NAME, { path: '/' });
+  res.json({ ok: true });
+});
+
+// ─── Saved ideas routes ────────────────────────────────────────────────────────
+
+app.post('/api/ideas/:id/save', requireAuth, async (req, res) => {
+  const user = (req as express.Request & { user: JwtPayload }).user;
+  const ideaId = String(req.params.id);
+  const check = await db.execute({ sql: 'SELECT id FROM ideas WHERE id = ?', args: [ideaId] });
+  if (!check.rows[0]) return res.status(404).json({ error: 'Idea not found' });
+  try {
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO saved_ideas (id, user_id, idea_id) VALUES (?, ?, ?)',
+      args: [randomUUID(), user.userId, ideaId],
+    });
+    res.json({ ok: true, saved: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.delete('/api/ideas/:id/save', requireAuth, async (req, res) => {
+  const user = (req as express.Request & { user: JwtPayload }).user;
+  const ideaId = String(req.params.id);
+  await db.execute({
+    sql: 'DELETE FROM saved_ideas WHERE user_id = ? AND idea_id = ?',
+    args: [user.userId, ideaId],
+  });
+  res.json({ ok: true, saved: false });
+});
+
+app.get('/api/me/saved', requireAuth, async (req, res) => {
+  const user = (req as express.Request & { user: JwtPayload }).user;
+  const result = await db.execute({
+    sql: `SELECT i.* FROM ideas i
+          JOIN saved_ideas s ON s.idea_id = i.id
+          WHERE s.user_id = ?
+          ORDER BY s.created_at DESC`,
+    args: [user.userId],
+  });
+  const rows = result.rows as unknown as Record<string, unknown>[];
+  res.json({ ideas: rows.map(formatIdea) });
+});
+
+app.get('/api/me/unlocked', requireAuth, async (req, res) => {
+  const user = (req as express.Request & { user: JwtPayload }).user;
+  const result = await db.execute({
+    sql: `SELECT DISTINCT i.* FROM ideas i
+          JOIN purchases p ON p.idea_id = i.id
+          WHERE p.user_id = ?
+          ORDER BY p.created_at DESC`,
+    args: [user.userId],
+  });
+  const rows = result.rows as unknown as Record<string, unknown>[];
+  res.json({ ideas: rows.map(formatIdea) });
+});
+
+// ─── Paystack initiate checkout ────────────────────────────────────────────────
+
+app.post('/api/payments/paystack/initiate', async (req, res) => {
+  const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!paystackKey) return res.status(503).json({ error: 'Paystack not configured' });
+
+  const { ideaId, email, userId } = req.body as { ideaId?: string; email?: string; userId?: string };
+  if (!ideaId || !email) return res.status(400).json({ error: 'ideaId and email are required' });
+
+  const check = await db.execute({ sql: 'SELECT id FROM ideas WHERE id = ?', args: [ideaId] });
+  if (!check.rows[0]) return res.status(404).json({ error: 'Idea not found' });
+
+  const amountNGN = Number(process.env.PAYSTACK_AMOUNT_KOBO) || 150000; // ₦1,500 in kobo
+  const callbackUrl = `${FRONTEND_URL}/report/${ideaId}?unlocked=1`;
+
+  try {
+    const psRes = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${paystackKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        amount: amountNGN,
+        callback_url: callbackUrl,
+        metadata: { idea_id: ideaId, user_id: userId || '' },
+      }),
+    });
+    const psData = await psRes.json() as { status: boolean; data?: { authorization_url: string; reference: string } };
+    if (!psData.status || !psData.data) {
+      return res.status(502).json({ error: 'Paystack initialization failed' });
+    }
+    res.json({ checkoutUrl: psData.data.authorization_url, reference: psData.data.reference });
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
+});
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.get('/_apidocs', (_req, res) => {
@@ -559,15 +916,35 @@ app.get('/api/ideas/:id', async (req, res) => {
   res.json(formatIdea(row));
 });
 
-// Analyze a URL
+// Analyze a URL or topic — returns up to 3 quality-gated ideas
 app.post('/api/analyze', async (req, res) => {
-  const { url } = req.body as { url?: string };
-  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
+  const { url, topic } = req.body as { url?: string; topic?: string };
+  const input = url?.trim() || topic?.trim();
+  if (!input) return res.status(400).json({ error: 'url or topic is required' });
+
+  const isUrl = !!url?.trim();
+  const sessionId = randomUUID();
 
   try {
-    const idea = await analyzeContent({ url, source: 'url' });
-    const persisted = await persistIdea(db, idea);
-    res.json(persisted);
+    const result = await analyzeContent({
+      url: isUrl ? input : `topic:${input}`,
+      source: isUrl ? 'url' : 'topic',
+      rawContent: isUrl ? undefined : `Topic for analysis: ${input}`,
+      rawTitle: isUrl ? undefined : input,
+    });
+
+    if (result.ideas.length === 0) {
+      return res.json({
+        ideas: [],
+        message: result.noIdeasReason || 'No viable startup opportunities found in this source.',
+      });
+    }
+
+    const persisted = await Promise.all(
+      result.ideas.map(idea => persistIdea(db, idea, { sessionId })),
+    );
+
+    res.json({ ideas: persisted });
   } catch (err) {
     console.error('[analyze] error:', err);
     const msg = err instanceof Error ? err.message : String(err);

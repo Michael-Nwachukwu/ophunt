@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Nav from '../components/Nav';
 import Footer from '../components/Footer';
 import { apiFetch } from '../lib/api';
+import { useAuthContext } from '../App';
 
 const CARD_CYCLE = [
   { bg: '#ff4d8b', text: '#ffffff', badge: 'rgba(255,255,255,0.2)' },
@@ -35,7 +36,7 @@ interface Idea {
   isUnlocked: boolean;
 }
 
-function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
+function IdeaCard({ idea, index, isSaved, onToggleSave }: { idea: Idea; index: number; isSaved: boolean; onToggleSave: () => void }) {
   const { bg, text, badge } = CARD_CYCLE[index % CARD_CYCLE.length];
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -60,7 +61,7 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
   );
 
   return (
-    <div ref={cardRef} className="reveal">
+    <div ref={cardRef} className="reveal" style={{ position: 'relative' }}>
       <Link
         to={`/report/${idea.id}`}
         className="no-underline block card-lift"
@@ -115,16 +116,38 @@ function IdeaCard({ idea, index }: { idea: Idea; index: number }) {
           </span>
         </div>
       </Link>
+
+      {/* Save heart button — floats over card, stops link navigation */}
+      <button
+        onClick={e => { e.preventDefault(); e.stopPropagation(); onToggleSave(); }}
+        title={isSaved ? 'Remove from saved' : 'Save idea'}
+        style={{
+          position: 'absolute', bottom: '20px', right: '20px',
+          background: isSaved ? '#ff4d8b' : 'rgba(255,255,255,0.25)',
+          border: 'none', borderRadius: '50%',
+          width: '36px', height: '36px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '16px', backdropFilter: 'blur(6px)',
+          transition: 'background 0.2s, transform 0.15s',
+          zIndex: 1,
+        }}
+        onMouseEnter={e => { if (!isSaved) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.45)'; }}
+        onMouseLeave={e => { if (!isSaved) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.25)'; }}
+      >
+        {isSaved ? '❤️' : '🤍'}
+      </button>
     </div>
   );
 }
 
 export default function Explore() {
+  const { user } = useAuthContext();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState('recent');
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
   const fetchIdeas = useCallback(() => {
     setLoading(true);
@@ -139,6 +162,29 @@ export default function Explore() {
   }, [category, sort]);
 
   useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
+
+  // Fetch saved idea IDs when user is logged in
+  useEffect(() => {
+    if (!user) { setSavedIds(new Set()); return; }
+    apiFetch('/api/me/saved', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { ideas: { id: string }[] } | null) => {
+        if (d) setSavedIds(new Set(d.ideas.map(i => i.id)));
+      })
+      .catch(() => {});
+  }, [user]);
+
+  async function handleToggleSave(ideaId: string) {
+    if (!user) { window.location.href = '/sign-in'; return; }
+    const isSaved = savedIds.has(ideaId);
+    if (isSaved) {
+      await apiFetch(`/api/ideas/${ideaId}/save`, { method: 'DELETE', credentials: 'include' });
+      setSavedIds(prev => { const s = new Set(prev); s.delete(ideaId); return s; });
+    } else {
+      await apiFetch(`/api/ideas/${ideaId}/save`, { method: 'POST', credentials: 'include' });
+      setSavedIds(prev => new Set([...prev, ideaId]));
+    }
+  }
 
   return (
     <div style={{ background: '#fffaf0', minHeight: '100vh' }}>
@@ -222,7 +268,15 @@ export default function Explore() {
 
         {!loading && !error && ideas.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {ideas.map((idea, i) => <IdeaCard key={idea.id} idea={idea} index={i} />)}
+            {ideas.map((idea, i) => (
+              <IdeaCard
+                key={idea.id}
+                idea={idea}
+                index={i}
+                isSaved={savedIds.has(idea.id)}
+                onToggleSave={() => handleToggleSave(idea.id)}
+              />
+            ))}
           </div>
         )}
       </section>

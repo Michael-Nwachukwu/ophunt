@@ -126,6 +126,7 @@ export async function discoverServices(category?: string): Promise<MarketplaceSe
 /**
  * Core marketplace call — routes through POST /marketplace/call.
  * service_id must be an endpoint id (endpoints[].id), NOT the provider id.
+ * Retries up to 2 times with backoff for retryable upstream failures.
  */
 export async function argensCall(
   serviceId: string,
@@ -134,11 +135,25 @@ export async function argensCall(
 ): Promise<unknown> {
   const body: Record<string, unknown> = { service_id: serviceId, payload };
   if (query) body.query = query;
-  const res = await argensFetch('/marketplace/call', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  }) as Record<string, unknown>;
-  return (res.data as Record<string, unknown>)?.result;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 1500 * attempt));
+      console.log(`[argens] Retrying call to ${serviceId} (attempt ${attempt + 1}/3)...`);
+    }
+    try {
+      const res = await argensFetch('/marketplace/call', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }) as Record<string, unknown>;
+      return (res.data as Record<string, unknown>)?.result;
+    } catch (err) {
+      lastErr = err;
+      if (!(err instanceof ArgensError) || !err.retryable) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 /**
