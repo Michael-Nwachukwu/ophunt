@@ -24,20 +24,36 @@ process.on('unhandledRejection', (reason) => {
 
 const app = express();
 
-// Env-driven extra origins (comma-separated); always allow localhost in dev
+// Derive origin string from a URL (handles parse errors gracefully)
+function originOf(url: string): string {
+  try { return new URL(url).origin; } catch { return ''; }
+}
+
+const APP_URL = process.env.APP_URL || 'http://localhost:4100';
+const FRONTEND_URL = process.env.FRONTEND_URL || APP_URL;
+
+// Env-driven extra origins (comma-separated); always allow localhost in dev.
+// APP_URL and FRONTEND_URL are auto-added so the deploy domain never needs
+// to be listed separately in ALLOWED_ORIGINS.
 const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(o => o.trim()).filter(Boolean);
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:8080',
   'http://localhost:5173',
+  originOf(APP_URL),
+  originOf(FRONTEND_URL),
   ...extraOrigins,
-]);
+].filter(Boolean));
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // same-origin or non-browser
     if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin not allowed — ${origin}`));
+    // Reject unknown origins without throwing — returning false omits the
+    // Access-Control-Allow-Origin header; the browser blocks it client-side
+    // but the server doesn't return a 500.
+    console.warn('[cors] blocked origin:', origin);
+    callback(null, false);
   },
   credentials: true,
 }));
@@ -540,9 +556,7 @@ async function migrateSchema() {
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ophunt-dev-secret-change-in-prod';
-const APP_URL = process.env.APP_URL || 'http://localhost:4100';
-// FRONTEND_URL is where the React app lives — different from APP_URL in dev
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
+// APP_URL and FRONTEND_URL are declared near the top (used for CORS too)
 const COOKIE_NAME = 'ophunt_auth';
 
 interface JwtPayload { userId: string; email: string }
