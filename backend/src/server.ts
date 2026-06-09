@@ -24,24 +24,35 @@ process.on('unhandledRejection', (reason) => {
 
 const app = express();
 
-// Derive origin string from a URL (handles parse errors gracefully)
-function originOf(url: string): string {
-  try { return new URL(url).origin; } catch { return ''; }
+// Strip trailing slash so `https://ophunt.xyz/` and `https://ophunt.xyz` are identical.
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, '');
 }
 
-const APP_URL = process.env.APP_URL || 'http://localhost:4100';
-const FRONTEND_URL = process.env.FRONTEND_URL || APP_URL;
+// Return both https and http origins for a URL so that during DNS propagation
+// (before the load balancer's HTTP→HTTPS redirect kicks in) requests still work.
+function originsOf(url: string): string[] {
+  try {
+    const u = new URL(url);
+    const https = `https://${u.host}`;
+    const http = `http://${u.host}`;
+    return [https, http];
+  } catch { return []; }
+}
+
+const APP_URL = normalizeUrl(process.env.APP_URL || 'http://localhost:4100');
+const FRONTEND_URL = normalizeUrl(process.env.FRONTEND_URL || APP_URL);
 
 // Env-driven extra origins (comma-separated); always allow localhost in dev.
-// APP_URL and FRONTEND_URL are auto-added so the deploy domain never needs
-// to be listed separately in ALLOWED_ORIGINS.
+// APP_URL and FRONTEND_URL are auto-added (both http + https variants) so the
+// deploy domain is never blocked, even before SSL fully propagates.
 const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(o => o.trim()).filter(Boolean);
 const ALLOWED_ORIGINS = new Set([
   'http://localhost:8080',
   'http://localhost:5173',
-  originOf(APP_URL),
-  originOf(FRONTEND_URL),
+  ...originsOf(APP_URL),
+  ...originsOf(FRONTEND_URL),
   ...extraOrigins,
 ].filter(Boolean));
 
