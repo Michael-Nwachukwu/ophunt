@@ -463,19 +463,33 @@ export default function Report() {
 
           {/* Score rings */}
           <div
-            className="flex flex-col sm:flex-row items-center justify-around gap-8 mb-12"
             style={{
               background: '#ffffff',
               borderRadius: '20px',
-              padding: '40px 32px',
               border: '1px solid rgba(10,10,10,0.08)',
+              marginBottom: '48px',
+              overflow: 'hidden',
             }}
           >
-            <ScoreRing value={idea.scores.opportunity} label="Opportunity" color="#ff4d8b" />
-            <ScoreRing value={idea.scores.feasibility} label="Feasibility" color="#1a3a3a" />
-            <ScoreRing value={idea.scores.novelty} label="Novelty" color="#b8a4ed" />
-            <ScoreRing value={idea.scores.timing ?? 0} label="Timing" color="#f4a261" />
-            <ScoreRing value={idea.scores.marketFit ?? 0} label="Market Fit" color="#2a9d8f" />
+            <div className="flex flex-col sm:flex-row items-center justify-around gap-8" style={{ padding: '40px 32px' }}>
+              <ScoreRing value={idea.scores.opportunity} label="Opportunity" color="#ff4d8b" />
+              <ScoreRing value={idea.scores.feasibility} label="Feasibility" color="#1a3a3a" />
+              <ScoreRing value={idea.scores.novelty} label="Novelty" color="#b8a4ed" />
+              <ScoreRing value={idea.scores.timing ?? 0} label="Timing" color="#f4a261" />
+              <ScoreRing value={idea.scores.marketFit ?? 0} label="Market Fit" color="#2a9d8f" />
+            </div>
+            <div style={{ borderTop: '1px solid rgba(10,10,10,0.06)', padding: '10px 20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <a
+                href="https://argens.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: '11px', fontWeight: 500, letterSpacing: '0.2px', color: 'rgba(10,10,10,0.3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', transition: 'color 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.6)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.3)')}
+              >
+                ⚡ Analysis powered by argens.xyz
+              </a>
+            </div>
           </div>
 
           {/* Keywords — free preview */}

@@ -62,10 +62,24 @@ export default function Footer() {
           </div>
 
           <div
-            className="mt-10 pt-6 font-body text-xs"
+            className="mt-10 pt-6 font-body text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
             style={{ borderTop: '1px solid rgba(10,10,10,0.1)', color: 'rgba(10,10,10,0.35)' }}
           >
-            © {new Date().getFullYear()} OpHunt. Reads the web so you can build it.
+            <span>© {new Date().getFullYear()} OpHunt. Reads the web so you can build it.</span>
+            <a
+              href="https://argens.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'rgba(10,10,10,0.35)', textDecoration: 'none', fontFamily: 'Inter, system-ui, sans-serif', fontSize: '11px', fontWeight: 500, letterSpacing: '0.2px', transition: 'color 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.65)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.35)')}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ opacity: 0.6 }}>
+                <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M4 8.5L8 3.5M8 3.5H5M8 3.5V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Powered by argens.xyz
+            </a>
           </div>
         </div>
       </div>

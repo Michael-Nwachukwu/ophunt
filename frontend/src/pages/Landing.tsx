@@ -261,6 +261,17 @@ export default function Landing() {
             <p className="font-body mt-4 fade-up-d3" style={{ fontSize: '13px', color: 'rgba(10,10,10,0.35)' }}>
               $1 per report · Up to 3 ideas per analysis · Instant results
             </p>
+            <a
+              href="https://argens.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-body fade-up-d3 no-underline inline-flex items-center gap-1 mt-2"
+              style={{ fontSize: '11px', fontWeight: 500, letterSpacing: '0.3px', color: 'rgba(10,10,10,0.28)', transition: 'color 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.55)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.28)')}
+            >
+              ⚡ AI analysis powered by argens.xyz
+            </a>
           </>
         )}
       </section>

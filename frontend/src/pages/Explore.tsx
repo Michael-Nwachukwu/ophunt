@@ -193,9 +193,22 @@ export default function Explore() {
       <section style={{ padding: '64px 24px 96px' }} className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-10">
-          <p className="font-body font-semibold uppercase mb-3" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)' }}>
-            Idea Feed
-          </p>
+          <div className="flex items-center gap-3 mb-3">
+            <p className="font-body font-semibold uppercase" style={{ fontSize: '11px', letterSpacing: '2px', color: 'rgba(10,10,10,0.4)', margin: 0 }}>
+              Idea Feed
+            </p>
+            <a
+              href="https://argens.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-body no-underline inline-flex items-center gap-1"
+              style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.3px', color: 'rgba(10,10,10,0.3)', background: 'rgba(10,10,10,0.05)', borderRadius: '999px', padding: '2px 8px', transition: 'color 0.15s, background 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'rgba(10,10,10,0.6)'; e.currentTarget.style.background = 'rgba(10,10,10,0.09)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'rgba(10,10,10,0.3)'; e.currentTarget.style.background = 'rgba(10,10,10,0.05)'; }}
+            >
+              ⚡ argens.xyz
+            </a>
+          </div>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <h1 className="font-heading font-medium" style={{ fontSize: 'clamp(32px, 5vw, 48px)', letterSpacing: '-1.5px', color: '#0a0a0a', margin: 0 }}>
               Recent opportunities
