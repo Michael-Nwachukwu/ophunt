@@ -206,7 +206,8 @@ export default function Explore() {
               onMouseEnter={e => { e.currentTarget.style.color = 'rgba(10,10,10,0.6)'; e.currentTarget.style.background = 'rgba(10,10,10,0.09)'; }}
               onMouseLeave={e => { e.currentTarget.style.color = 'rgba(10,10,10,0.3)'; e.currentTarget.style.background = 'rgba(10,10,10,0.05)'; }}
             >
-              ⚡ argens.xyz
+              <img src="/argens-icon.svg" alt="" style={{ width: '11px', height: '11px', display: 'block', opacity: 0.7 }} />
+              argens.xyz
             </a>
           </div>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">

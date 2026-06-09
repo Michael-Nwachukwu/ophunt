@@ -270,7 +270,8 @@ export default function Landing() {
               onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.55)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.28)')}
             >
-              ⚡ AI analysis powered by argens.xyz
+              <img src="/argens-icon.svg" alt="" style={{ width: '12px', height: '12px', display: 'inline-block', opacity: 0.6, verticalAlign: 'middle' }} />
+              Powered by argens.xyz
             </a>
           </>
         )}

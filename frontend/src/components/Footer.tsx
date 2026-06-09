@@ -74,10 +74,7 @@ export default function Footer() {
               onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.65)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.35)')}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ opacity: 0.6 }}>
-                <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2" />
-                <path d="M4 8.5L8 3.5M8 3.5H5M8 3.5V6.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <img src="/argens-icon.svg" alt="" style={{ width: '13px', height: '13px', display: 'block', opacity: 0.7 }} />
               Powered by argens.xyz
             </a>
           </div>

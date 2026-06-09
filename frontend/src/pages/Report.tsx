@@ -487,7 +487,8 @@ export default function Report() {
                 onMouseEnter={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.6)')}
                 onMouseLeave={e => (e.currentTarget.style.color = 'rgba(10,10,10,0.3)')}
               >
-                ⚡ Analysis powered by argens.xyz
+                <img src="/argens-icon.svg" alt="" style={{ width: '12px', height: '12px', display: 'block', opacity: 0.65 }} />
+                Analysis powered by argens.xyz
               </a>
             </div>
           </div>
