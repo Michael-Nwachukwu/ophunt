@@ -85,8 +85,17 @@ async function argensFetch(path: string, options: RequestInit = {}): Promise<unk
   if (!res.ok) {
     const code = (body.code as string) || `HTTP_${res.status}`;
     const msg = (body.error as string) || `Argens request failed (${res.status})`;
-    // 5xx are transient; 4xx (except 402) are caller errors
-    throw new ArgensError(msg, code, res.status >= 500);
+    const details = body.details as Record<string, unknown> | undefined;
+    if (details) {
+      console.error(`[argens] ${code} on ${path}:`, {
+        serviceId: details.service_id,
+        upstreamStatus: details.upstream_status,
+        upstreamBody: String(details.upstream_body ?? details.reason ?? '').slice(0, 300),
+      });
+    }
+    // 5xx are transient, except MARKETPLACE_NOT_MPP: the upstream rejected the
+    // request itself, so sending it again cannot succeed.
+    throw new ArgensError(msg, code, res.status >= 500 && code !== 'MARKETPLACE_NOT_MPP');
   }
 
   return body;
