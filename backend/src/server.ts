@@ -973,7 +973,8 @@ app.post('/api/analyze', async (req, res) => {
   } catch (err) {
     console.error('[analyze] error:', err);
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: msg });
+    // Not 502: the hosting proxy replaces it with a generic "Service unavailable" page.
+    res.status(500).json({ error: msg });
   }
 });
 

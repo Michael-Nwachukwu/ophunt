@@ -221,6 +221,36 @@ function parseLlmResponse(
   return { ideas, noIdeasReason: ideas.length === 0 ? noIdeasReason : undefined };
 }
 
+// ─── LLM request sizing ───────────────────────────────────────────────────────
+
+// The upstream behind deepseek_chat answers 403 once the request body reaches
+// roughly 8 KB (8,088 bytes accepted, 8,468 rejected, measured 2026-11-09).
+const MAX_LLM_REQUEST_BYTES = 7800;
+const LLM_ENVELOPE_BYTES = 200; // service_id, model, max_tokens, message wrappers
+
+const jsonBytes = (s: string) => Buffer.byteLength(JSON.stringify(s), 'utf8');
+
+/** Removes markdown link and image targets, which use up the size budget without adding meaning. */
+function stripMarkdownNoise(markdown: string): string {
+  return markdown
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Appends as much content to the prefix as fits within the LLM request limit. */
+function fitToLlmLimit(prefix: string, content: string): string {
+  const available =
+    MAX_LLM_REQUEST_BYTES - LLM_ENVELOPE_BYTES - jsonBytes(SYSTEM_PROMPT) - jsonBytes(prefix);
+  let end = Math.min(content.length, Math.max(available, 0));
+  while (end > 0 && jsonBytes(content.slice(0, end)) > available) {
+    end = Math.floor(end * 0.95);
+  }
+  return prefix + content.slice(0, end);
+}
+
 // ─── Main analysis function ───────────────────────────────────────────────────
 
 export async function analyzeContent(opts: {
@@ -242,7 +272,7 @@ export async function analyzeContent(opts: {
   if (!pageContent && opts.url) {
     try {
       const scraped = await scrapeUrl(opts.url);
-      pageContent = scraped.markdown;
+      pageContent = stripMarkdownNoise(scraped.markdown);
       pageTitle = scraped.title || pageTitle;
     } catch (err) {
       console.warn('[analyze] Scraping failed, proceeding with URL only:', err instanceof Error ? err.message : err);
@@ -250,7 +280,7 @@ export async function analyzeContent(opts: {
   }
 
   const userContent = pageContent
-    ? `URL: ${opts.url}\n\nPage title: ${pageTitle}\n\nContent:\n${pageContent.slice(0, 12000)}`
+    ? fitToLlmLimit(`URL: ${opts.url}\n\nPage title: ${pageTitle}\n\nContent:\n`, pageContent)
     : `URL: ${opts.url}\n\nNo content available. Analyze based on URL structure, domain, and path context.`;
 
   const text = await llmComplete(SYSTEM_PROMPT, userContent, 3500);
